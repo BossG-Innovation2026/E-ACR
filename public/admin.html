@@ -57,8 +57,12 @@
 
   <script>
     let config = { report: {}, fields: [] };
+    let token = sessionStorage.getItem('access_token') || '';
+    function headers() { return token ? { 'Authorization': 'Bearer ' + token } : {}; }
 
     async function loadConfig() {
+      const auth = await fetch('/config/supabase');
+      if (auth.ok && !token) { window.location.href = '/login.html'; return; }
       const res = await fetch('/api/config');
       config = await res.json();
       document.getElementById('title').value = config.report.title || '';
@@ -131,7 +135,7 @@
       });
       const res = await fetch('/api/config', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: Object.assign({ 'Content-Type': 'application/json' }, headers()),
         body: JSON.stringify(config),
       });
       const data = await res.json();
@@ -143,7 +147,7 @@
       if (!file) { showMsg('Choose a .docx file first.', true); return; }
       const fd = new FormData();
       fd.append('template', file);
-      const res = await fetch('/api/template', { method: 'POST', body: fd });
+      const res = await fetch('/api/template', { method: 'POST', headers: headers(), body: fd });
       const data = await res.json();
       showMsg(data.ok ? 'Template uploaded.' : (data.error || 'Upload failed'), !data.ok);
     });

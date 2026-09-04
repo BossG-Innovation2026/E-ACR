@@ -37,10 +37,26 @@
     <div id="msg" class="msg"></div>
     <a class="admin" href="/admin.html">Admin configuration</a>
     <a class="admin" href="/reports.html">Saved reports</a>
+    <a class="admin" href="#" id="logout">Log out</a>
   </div>
 
   <script>
     let config = { report: {}, fields: [] };
+    let token = '';
+    let authMode = false;
+
+    async function detectAuth() {
+      const res = await fetch('/config/supabase');
+      if (res.ok) {
+        authMode = true;
+        token = sessionStorage.getItem('access_token') || '';
+        if (!token) {
+          window.location.href = '/login.html';
+          return false;
+        }
+      }
+      return true;
+    }
 
     async function loadConfig() {
       const res = await fetch('/api/config');
@@ -86,9 +102,11 @@
 
     async function download(format) {
       const values = collectValues();
+      const headers = { 'Content-Type': 'application/json' };
+      if (authMode && token) headers['Authorization'] = 'Bearer ' + token;
       const res = await fetch('/api/generate?format=' + format, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(values),
       });
       if (!res.ok) {
@@ -116,8 +134,14 @@
 
     document.getElementById('btnDocx').addEventListener('click', () => download('docx'));
     document.getElementById('btnPdf').addEventListener('click', () => download('pdf'));
+    document.getElementById('logout').addEventListener('click', () => {
+      sessionStorage.removeItem('access_token');
+      window.location.href = '/login.html';
+    });
 
-    loadConfig();
+    (async () => {
+      if (await detectAuth()) loadConfig();
+    })();
   </script>
 </body>
 </html>

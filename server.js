@@ -4,6 +4,7 @@ const express = require('express');
 const multer = require('multer');
 const { generateDocx, generatePdf } = require('./lib/generate');
 const store = require('./lib/store');
+const supabase = require('./lib/supabase');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -19,15 +20,33 @@ function readConfig() {
   return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
 }
 
+function isSupabaseEnabled() {
+  return supabase.enabled;
+}
+
+async function requireAuth(req, res, next) {
+  if (!isSupabaseEnabled()) return next();
+  const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  const user = await supabase.verifyToken(token);
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+  req.user = user;
+  next();
+}
+
 app.get('/health', (req, res) => {
-  res.json({ ok: true, time: new Date().toISOString() });
+  res.json({ ok: true, mode: isSupabaseEnabled() ? 'supabase' : 'local', time: new Date().toISOString() });
 });
 
 app.get('/api/config', (req, res) => {
   res.json(readConfig());
 });
 
-app.post('/api/config', (req, res) => {
+app.get('/config/supabase', (req, res) => {
+  if (!isSupabaseEnabled()) return res.status(404).json({ error: 'Supabase not configured' });
+  res.json({ url: process.env.SUPABASE_URL, anonKey: process.env.SUPABASE_PUBLISHABLE_KEY });
+});
+
+app.post('/api/config', requireAuth, (req, res) => {
   const body = req.body;
   if (!body || !Array.isArray(body.fields) || !body.report) {
     return res.status(400).json({ ok: false, error: 'Expected { report, fields: [...] }' });
@@ -40,20 +59,26 @@ app.post('/api/config', (req, res) => {
   }
 });
 
-app.post('/api/generate', async (req, res) => {
+app.post('/api/generate', requireAuth, async (req, res) => {
   const values = req.body || {};
   const format = req.query.format || 'docx';
-
-  if (!['docx', 'pdf'].includes(format)) {
-    return res.status(400).send('Unsupported format');
-  }
+  if (!['docx', 'pdf'].includes(format)) return res.status(400).send('Unsupported format');
 
   try {
     const docx = generateDocx(values);
     const pdf = await generatePdf(values);
-    const id = await store.save(values, docx, pdf);
-
+    const id = require('crypto').randomUUID();
     const fileName = req.query.filename || 'accomplishment-report';
+
+    if (isSupabaseEnabled()) {
+      const userId = req.user.id;
+      const docxPath = await supabase.uploadFile(userId, id, 'docx', docx, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      const pdfPath = await supabase.uploadFile(userId, id, 'pdf', pdf, 'application/pdf');
+      await supabase.saveReport(userId, id, values, docxPath, pdfPath);
+    } else {
+      await store.save(values, docx, pdf);
+    }
+
     if (format === 'docx') {
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
       res.setHeader('Content-Disposition', `attachment; filename="${fileName}.docx"`);
@@ -68,16 +93,24 @@ app.post('/api/generate', async (req, res) => {
   }
 });
 
-app.get('/api/reports', async (req, res) => {
+app.get('/api/reports', requireAuth, async (req, res) => {
   try {
+    if (isSupabaseEnabled()) {
+      return res.json(await supabase.listReports(req.user.id));
+    }
     res.json(await store.list());
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.get('/api/reports/:id', async (req, res) => {
+app.get('/api/reports/:id', requireAuth, async (req, res) => {
   try {
+    if (isSupabaseEnabled()) {
+      const report = await supabase.getReport(req.user.id, req.params.id);
+      if (!report) return res.status(404).json({ error: 'Not found' });
+      return res.json({ id: report.id, createdAt: report.createdAt, form_values: report.form_values });
+    }
     const report = await store.get(req.params.id);
     if (!report) return res.status(404).json({ error: 'Not found' });
     res.json({ id: report.id, createdAt: report.createdAt, form_values: report.form_values });
@@ -86,19 +119,26 @@ app.get('/api/reports/:id', async (req, res) => {
   }
 });
 
-app.get('/api/reports/:id/download', async (req, res) => {
+app.get('/api/reports/:id/download', requireAuth, async (req, res) => {
   try {
-    const report = await store.get(req.params.id);
-    if (!report) return res.status(404).send('Not found');
     const format = req.query.format || 'docx';
-    const buffer = format === 'pdf' ? report.pdf : report.docx;
+    let buffer = null;
+    if (isSupabaseEnabled()) {
+      const report = await supabase.getReport(req.user.id, req.params.id);
+      if (!report) return res.status(404).send('Not found');
+      buffer = format === 'pdf' ? report.pdf : report.docx;
+    } else {
+      const report = await store.get(req.params.id);
+      if (!report) return res.status(404).send('Not found');
+      buffer = format === 'pdf' ? report.pdf : report.docx;
+    }
     if (!buffer) return res.status(404).send('File not available');
     if (format === 'pdf') {
       res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="report-${report.id}.pdf"`);
+      res.setHeader('Content-Disposition', `attachment; filename="report-${req.params.id}.pdf"`);
     } else {
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-      res.setHeader('Content-Disposition', `attachment; filename="report-${report.id}.docx"`);
+      res.setHeader('Content-Disposition', `attachment; filename="report-${req.params.id}.docx"`);
     }
     return res.send(buffer);
   } catch (err) {
@@ -107,7 +147,7 @@ app.get('/api/reports/:id/download', async (req, res) => {
 });
 
 const upload = multer({ dest: path.join(__dirname, 'uploads') });
-app.post('/api/template', upload.single('template'), (req, res) => {
+app.post('/api/template', requireAuth, upload.single('template'), (req, res) => {
   if (!req.file) return res.status(400).send('No file uploaded');
   fs.mkdirSync(path.dirname(TEMPLATE_PATH), { recursive: true });
   fs.copyFileSync(req.file.path, TEMPLATE_PATH);
@@ -127,11 +167,10 @@ app.get('/api/template', (req, res) => {
 (async () => {
   try {
     await store.init();
-    console.log('Storage ready:', process.env.DATABASE_URL ? 'Postgres' : 'local file store');
   } catch (err) {
-    console.warn('DB init failed, using local file store:', err.message);
+    console.warn('Local store init failed:', err.message);
   }
   app.listen(PORT, () => {
-    console.log(`Accomplishment Report app running at http://localhost:${PORT}`);
+    console.log(`Accomplishment Report app running at http://localhost:${PORT} [mode: ${isSupabaseEnabled() ? 'supabase' : 'local'}]`);
   });
 })();

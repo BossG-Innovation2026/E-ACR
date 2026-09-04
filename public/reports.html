@@ -30,8 +30,17 @@
   </div>
 
   <script>
+    let token = sessionStorage.getItem('access_token') || '';
+    function headers() {
+      const h = {};
+      if (token) h['Authorization'] = 'Bearer ' + token;
+      return h;
+    }
+
     async function load() {
-      const res = await fetch('/api/reports');
+      const auth = await fetch('/config/supabase');
+      if (auth.ok && !token) { window.location.href = '/login.html'; return; }
+      const res = await fetch('/api/reports', { headers: headers() });
       const reports = await res.json();
       const tbody = document.getElementById('rows');
       tbody.innerHTML = '';
@@ -50,8 +59,8 @@
           <td>${escapeHtml(nameField ? vals[nameField.name] || '—' : '—')}</td>
           <td>${escapeHtml(periodField ? vals[periodField.name] || '—' : '—')}</td>
           <td>
-            <a class="btn" href="/api/reports/${r.id}/download?format=docx">DOCX</a>
-            <a class="btn" href="/api/reports/${r.id}/download?format=pdf">PDF</a>
+            <a class="btn" href="#" onclick="dl('${r.id}','docx');return false;">DOCX</a>
+            <a class="btn" href="#" onclick="dl('${r.id}','pdf');return false;">PDF</a>
           </td>`;
         tbody.appendChild(tr);
       });
@@ -59,6 +68,20 @@
     function escapeHtml(v) {
       return String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     }
+
+    async function dl(id, format) {
+      const res = await fetch(`/api/reports/${id}/download?format=${format}`, { headers: headers() });
+      if (!res.ok) { alert('Download failed'); return; }
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'report-' + id + '.' + format;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(a.href);
+    }
+
     load();
   </script>
 </body>

@@ -9,6 +9,7 @@
     "make-template": "node scripts/make-template.js"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.115.0",
     "docx": "^8.5.0",
     "docxtemplater": "^3.46.0",
     "express": "^4.19.2",
