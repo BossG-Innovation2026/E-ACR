@@ -48,16 +48,23 @@ Every submission is saved and listed on the reports page.
 | GET | `/api/template` | Download current template |
 | POST | `/api/template` | Upload a new `.docx` template |
 
-## Free Cloud Deployment
+## Free Cloud Deployment (Supabase DB + Node host)
 
-The app is plain Node.js (no headless browser), so it runs on any free Node host. Suggested: **Render (free)** + a **free Postgres** (Neon or Supabase).
+Supabase provides a **free Postgres** (plus optional Auth/Storage). It does not host a long-running Node server, so host the Express app on a free Node host (Render or Railway) and point it at Supabase's Postgres.
 
-1. Push this folder to a GitHub repo.
-2. Create a free Postgres DB (e.g. Neon → get a connection string).
-3. **Render** → *New Web Service* → connect the repo (or use `render.yaml` — Blueprint).
-   - Build: `npm ci` — Start: `node server.js`
-   - Add env var `DATABASE_URL` with your Postgres connection string.
-4. Deploy; the app auto-creates the `reports` table.
-5. Visit the service URL, confirm `/health`, then set the template + fields via `/admin.html`.
+1. **Supabase** — create a free project → *Project Settings → Database → Connection string*:
+   - Copy the **pooler** URI (Session or Transaction pooler). It looks like:
+     `postgresql://postgres.<ref>:<password>@...pooler.supabase.com:5432/postgres?sslmode=require`
+   - Keep the password (set it under *Database* if not already).
+2. **Host the app** on Render (free): *New Web Service* → connect the repo (or use `render.yaml`), build `npm ci`, start `node server.js`.
+3. Set env vars on the host:
+   - `DATABASE_URL` = the Supabase pooler URI
+   - `DATABASE_SSL=true` (or ensure `sslmode=require` is in the URI)
+4. Deploy. The app auto-creates the `reports` table. Confirm with the service URL + `/health`.
+5. Load your real template + fields at `/admin.html`.
 
-Alternative hosts: Railway, Fly.io. For the Dockerfile, any container host works.
+> Because the connection string contains the DB password, keep it in the host's env vars (`DATABASE_URL`) — never commit it. `.env` is gitignored.
+
+## Full-Supabase alternative (no separate host)
+
+If you'd rather not run a Node host, the API can be rewritten as **Supabase Edge Functions** (Deno) instead of Express. That is a larger change (different runtime), so the Express app above is the fast path.
