@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin — Report Configuration</title>
+  <style>
+    body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; background: #f4f5f7; margin: 0; padding: 24px; color: #1f2933; }
+    .card { max-width: 760px; margin: 0 auto; background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.1); padding: 28px; }
+    h1 { margin-top: 0; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    label { display: block; font-weight: 600; margin-bottom: 4px; font-size: 13px; }
+    input, select, textarea { width: 100%; box-sizing: border-box; padding: 7px 9px; border: 1px solid #cbd2d9; border-radius: 6px; font: inherit; }
+    .field { margin-bottom: 14px; }
+    .section { margin-top: 24px; border-top: 1px solid #e4e7eb; padding-top: 16px; }
+    button { padding: 10px 18px; border: 0; border-radius: 6px; background: #2563eb; color: #fff; font: inherit; cursor: pointer; }
+    button.secondary { background: #64748b; }
+    .msg { margin-top: 12px; font-weight: 500; }
+    .msg.err { color: #c0392b; }
+    .msg.ok { color: #15803d; }
+    a { color: #2563eb; font-size: 13px; display: inline-block; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Admin Configuration</h1>
+    <p>Edit the report meta, then manage form fields. Save config and upload the Word template (with <code>{placeholder}</code> tokens matching field names).</p>
+
+    <div class="field">
+      <label for="title">Report title</label>
+      <input id="title" type="text" />
+    </div>
+    <div class="field">
+      <label for="fileName">Generated file name</label>
+      <input id="fileName" type="text" />
+    </div>
+
+    <div class="section">
+      <h2>Form Fields</h2>
+      <div id="fields"></div>
+      <button type="button" id="addField">+ Add field</button>
+    </div>
+
+    <div class="section">
+      <h2>Word Template</h2>
+      <input id="templateUpload" type="file" accept=".docx" />
+      <button type="button" id="uploadTemplate">Upload template</button>
+      <button type="button" id="downloadTemplate" class="secondary">Download current template</button>
+    </div>
+
+    <div class="section">
+      <button type="button" id="saveConfig">Save configuration</button>
+    </div>
+    <div id="msg" class="msg"></div>
+    <a href="/">← Back to form</a>
+  </div>
+
+  <script>
+    let config = { report: {}, fields: [] };
+
+    async function loadConfig() {
+      const res = await fetch('/api/config');
+      config = await res.json();
+      document.getElementById('title').value = config.report.title || '';
+      document.getElementById('fileName').value = config.report.fileName || '';
+      renderFields();
+    }
+
+    function renderFields() {
+      const container = document.getElementById('fields');
+      container.innerHTML = '';
+      config.fields.forEach((f, i) => renderField(container, f, i));
+    }
+
+    function renderField(container, f, i) {
+      const div = document.createElement('div');
+      div.className = 'grid';
+      div.style.marginBottom = '10px';
+      div.innerHTML = `
+        <div><label>Label</label><input data-field="label" value="${escapeAttr(f.label)}" /></div>
+        <div><label>Name (placeholder token)</label><input data-field="name" value="${escapeAttr(f.name)}" /></div>
+        <div><label>Type</label>
+          <select data-field="type">
+            <option value="text" ${f.type === 'text' ? 'selected' : ''}>Text</option>
+            <option value="textarea" ${f.type === 'textarea' ? 'selected' : ''}>Textarea</option>
+          </select>
+        </div>
+        <div><label>Required</label>
+          <select data-field="required">
+            <option value="false" ${!f.required ? 'selected' : ''}>No</option>
+            <option value="true" ${f.required ? 'selected' : ''}>Yes</option>
+          </select>
+        </div>
+      `;
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.textContent = 'Remove';
+      remove.className = 'secondary';
+      remove.style.marginBottom = '10px';
+      remove.addEventListener('click', () => {
+        config.fields.splice(i, 1);
+        renderFields();
+      });
+      container.appendChild(div);
+      container.appendChild(remove);
+    }
+
+    function escapeAttr(v) {
+      return String(v == null ? '' : v).replace(/"/g, '&quot;');
+    }
+
+    document.getElementById('addField').addEventListener('click', () => {
+      config.fields.push({ name: 'field' + Date.now(), label: 'New Field', type: 'text', required: false });
+      renderFields();
+    });
+
+    document.getElementById('saveConfig').addEventListener('click', async () => {
+      config.report.title = document.getElementById('title').value;
+      config.report.fileName = document.getElementById('fileName').value;
+      const container = document.getElementById('fields');
+      const rows = container.querySelectorAll('.grid');
+      config.fields = [];
+      rows.forEach((row) => {
+        const f = {};
+        row.querySelectorAll('[data-field]').forEach((el) => {
+          let val = el.value;
+          if (el.dataset.field === 'required') val = val === 'true';
+          f[el.dataset.field] = val;
+        });
+        config.fields.push(f);
+      });
+      const res = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config),
+      });
+      const data = await res.json();
+      showMsg(data.ok ? 'Configuration saved.' : (data.error || 'Save failed'), !data.ok);
+    });
+
+    document.getElementById('uploadTemplate').addEventListener('click', async () => {
+      const file = document.getElementById('templateUpload').files[0];
+      if (!file) { showMsg('Choose a .docx file first.', true); return; }
+      const fd = new FormData();
+      fd.append('template', file);
+      const res = await fetch('/api/template', { method: 'POST', body: fd });
+      const data = await res.json();
+      showMsg(data.ok ? 'Template uploaded.' : (data.error || 'Upload failed'), !data.ok);
+    });
+
+    document.getElementById('downloadTemplate').addEventListener('click', () => {
+      window.location.href = '/api/template';
+    });
+
+    function showMsg(text, isError) {
+      const msg = document.getElementById('msg');
+      msg.textContent = text;
+      msg.className = 'msg ' + (isError ? 'err' : 'ok');
+    }
+
+    loadConfig();
+  </script>
+</body>
+</html>

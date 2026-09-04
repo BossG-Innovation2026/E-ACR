@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Accomplishment Report</title>
+  <style>
+    body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; background: #f4f5f7; margin: 0; padding: 24px; color: #1f2933; }
+    .card { max-width: 720px; margin: 0 auto; background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.1); padding: 28px; }
+    h1 { margin-top: 0; }
+    .field { margin-bottom: 16px; }
+    label { display: block; font-weight: 600; margin-bottom: 6px; }
+    input[type=text], textarea { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #cbd2d9; border-radius: 6px; font: inherit; }
+    textarea { min-height: 90px; resize: vertical; }
+    .req { color: #c0392b; }
+    .actions { display: flex; gap: 10px; margin-top: 20px; }
+    button { padding: 10px 18px; border: 0; border-radius: 6px; background: #2563eb; color: #fff; font: inherit; cursor: pointer; }
+    button.secondary { background: #64748b; }
+    button:hover { opacity: .9; }
+    .msg { margin-top: 12px; font-weight: 500; }
+    .msg.err { color: #c0392b; }
+    .msg.ok { color: #15803d; }
+    a.admin { display: inline-block; margin-top: 18px; color: #2563eb; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1 id="title">Accomplishment Report</h1>
+    <p>Complete the form below, then download your report as Word or PDF.</p>
+    <form id="reportForm">
+      <div id="fields"></div>
+      <div class="actions">
+        <button type="button" id="btnDocx">Download Word (.docx)</button>
+        <button type="button" id="btnPdf" class="secondary">Download PDF</button>
+      </div>
+    </form>
+    <div id="msg" class="msg"></div>
+    <a class="admin" href="/admin.html">Admin configuration</a>
+  </div>
+
+  <script>
+    let config = { report: {}, fields: [] };
+
+    async function loadConfig() {
+      const res = await fetch('/api/config');
+      config = await res.json();
+      document.getElementById('title').textContent = config.report.title || 'Accomplishment Report';
+      renderFields();
+    }
+
+    function renderFields() {
+      const container = document.getElementById('fields');
+      container.innerHTML = '';
+      config.fields.forEach((f) => {
+        const wrap = document.createElement('div');
+        wrap.className = 'field';
+        const label = document.createElement('label');
+        label.textContent = f.label + (f.required ? ' *' : '');
+        wrap.appendChild(label);
+        let input;
+        if (f.type === 'textarea') {
+          input = document.createElement('textarea');
+          input.placeholder = f.placeholder || '';
+        } else {
+          input = document.createElement('input');
+          input.type = 'text';
+          input.placeholder = f.placeholder || '';
+        }
+        input.id = f.name;
+        input.name = f.name;
+        input.required = !!f.required;
+        wrap.appendChild(input);
+        container.appendChild(wrap);
+      });
+    }
+
+    function collectValues() {
+      const values = {};
+      config.fields.forEach((f) => {
+        const el = document.getElementById(f.name);
+        values[f.name] = el ? el.value.trim() : '';
+      });
+      return values;
+    }
+
+    async function download(format) {
+      const values = collectValues();
+      const res = await fetch('/api/generate?format=' + format, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(values),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        showMsg(err.error || 'Failed to generate report', true);
+        return;
+      }
+      const blob = await res.blob();
+      const ext = format === 'docx' ? 'docx' : 'pdf';
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = (config.report.fileName || 'accomplishment-report') + '.' + ext;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(a.href);
+      showMsg('Report generated.');
+    }
+
+    function showMsg(text, isError) {
+      const msg = document.getElementById('msg');
+      msg.textContent = text;
+      msg.className = 'msg ' + (isError ? 'err' : 'ok');
+    }
+
+    document.getElementById('btnDocx').addEventListener('click', () => download('docx'));
+    document.getElementById('btnPdf').addEventListener('click', () => download('pdf'));
+
+    loadConfig();
+  </script>
+</body>
+</html>

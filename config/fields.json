@@ -1,0 +1,18 @@
+{
+  "report": {
+    "title": "Accomplishment Report",
+    "fileName": "accomplishment-report",
+    "includeSignature": true,
+    "signatureLabel": "Prepared by"
+  },
+  "fields": [
+    { "name": "fullName", "label": "Full Name", "type": "text", "required": true, "placeholder": "Your full name" },
+    { "name": "department", "label": "Department", "type": "text", "placeholder": "e.g. Engineering" },
+    { "name": "position", "label": "Position / Title", "type": "text", "placeholder": "e.g. Software Engineer" },
+    { "name": "period", "label": "Covering Period", "type": "text", "placeholder": "e.g. September 2026" },
+    { "name": "accomplishments", "label": "Key Accomplishments", "type": "textarea", "placeholder": "List your accomplishments for this period..." },
+    { "name": "metrics", "label": "Metrics / Results", "type": "textarea", "placeholder": "Quantified results, numbers, outcomes..." },
+    { "name": "challenges", "label": "Challenges & How Addressed", "type": "textarea", "placeholder": "Obstacles faced and how you resolved them..." },
+    { "name": "nextSteps", "label": "Next Steps / Areas of Focus", "type": "textarea", "placeholder": "What you will focus on next..." }
+  ]
+}
