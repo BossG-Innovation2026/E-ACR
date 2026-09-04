@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: accomplishment-report
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: node server.js
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: DATABASE_URL
+        sync: false
+    autoDeploy: true
