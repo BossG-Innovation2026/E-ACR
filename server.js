@@ -1,5 +1,6 @@
 const path = require('path');
 const fs = require('fs');
+require('dotenv').config();
 const express = require('express');
 const multer = require('multer');
 const { generateDocx, generatePdf } = require('./lib/generate');
